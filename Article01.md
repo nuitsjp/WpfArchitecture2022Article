@@ -353,6 +353,8 @@ SPREADは高度なレイアウトが実現できるグリッド・スプレッ�
 ||購買API|購買アプリからバックエンドを利用するためのWeb API|
 |データベース|SQL Server 2022|購買アプリケーションのデータの永続化先。購買APIを通して利用する。|
 
+こうして俯瞰してみると、Visual StudioのライセンスはGitHubのEnterpriseライセンスが含まれる「Visual Studio Subscription with GitHub Enterprise」が良いなと明確になるでしょう。Visual StudioとGitHubのライセンスを個別に容易してしまうというようなことは、案外起こりがちです。
+
 # 物理構成の決定
 
 論理構成を検討したことで、おおよそ何が必要になるのか見えてきました。ただ論理構成だけだと隠れてしまっている要素があります。
