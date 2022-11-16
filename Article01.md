@@ -87,7 +87,7 @@ AdventureWorksは販売・配送・製造・購買という、Adventure Works Cy
 * SQL Server 2022-latest(on Docker)
 * ComponentOne WPF Edition 2022v1
 * SPREAD for WPF 4.0J  
-* Test Assistant Pro
+* Test Assistant Pro 1.123
 * .NET 6.0.11
 
 本稿のサンプルは .NET 6で構築しますが、.NET Framework 4.6.2以上（.NET Standard 2.0水準以上）であれば同様のアーキテクチャで実現可能です。ただし一部利用しているパッケージのバージョンを当てなおす必要があるかもしれません。
