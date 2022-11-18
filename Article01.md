@@ -6,7 +6,7 @@
 
 現在、ドメイン駆動設計やClean Architectureなどが日本でも良く語られるようになり、ひろく受け入れられ始められています。技術的にはWPFも .NET Frameworkだけでなく .NET上でも動作するようになりました。筆者もそれらを取り入れて開発しています。
 
-本稿ではマイクロソフトが架空の大規模多国籍製造企業を想定し公開している、サンプルデータベース「AdventureWorks」を題材に、グレープシティのコンポーネント「ComponentOne for WPF」や「SPREAD for WPF」を活用して業務アプリケーション開発をする際のアーキテクチャを紹介します。
+本稿ではマイクロソフトが架空の大規模多国籍製造企業を想定し公開している、サンプルデータベース「AdventureWorks」を題材に、グレープシティのコンポーネント「[ComponentOne for WPF](https://www.grapecity.co.jp/developer/componentone)」や「[SPREAD for WPF](https://www.grapecity.co.jp/developer/spread-wpf)」を活用して業務アプリケーション開発をする際のアーキテクチャを紹介します。
 
 # はじめに
 
@@ -73,8 +73,8 @@ AdventureWorksは販売・配送・製造・購買という、Adventure Works Cy
 * Docker Desktop 4.14.0
 * Docker version 20.10.20
 * SQL Server 2022-latest(on Docker)
-* ComponentOne WPF Edition 2022v2
-* SPREAD for WPF 4.0J  
+* [ComponentOne for WPF Edition 2022v2](https://www.grapecity.co.jp/developer/componentone/wpf)
+* [SPREAD for WPF 4.0J](https://www.grapecity.co.jp/developer/spread-wpf)
 * Test Assistant Pro 1.123
 * .NET 6.0.11
 
@@ -290,6 +290,8 @@ Clean Architectureについては、筆者のブログである「[世界一わ�
 
 具体的になにを考慮する必要があるでしょう？個人の開発端末、ソースコードを管理するバージョン管理システム、CI環境。CIを考えたとき、UIテストの実行環境はどうするべきでしょうか？
 
+多少の相違はあれど、概ねつぎのようになるでしょう。
+
 ![](images/logical_node_model_2.png)
 
 WPFでUIの自動テストを考慮した場合、ユーザープロセスでテストエージェントを実行する必要があります。そこでCIノードとは別にテストエージェントホストをノードとして記載しています。
@@ -312,8 +314,8 @@ WPFのユーザーコントロールを提供しているベンダーは多数�
 
 今回のサンプルでは下記のコンポーネントを利用することとします。
 
-* ComponentOne WPF Edition 2022v2
-* SPREAD for WPF 4.0J  
+* [ComponentOne for WPF Edition 2022v2](https://www.grapecity.co.jp/developer/componentone)
+* [SPREAD for WPF 4.0J](https://www.grapecity.co.jp/developer/spread-wpf)
 
 ComponentOneはWPF向けの多機能な統合パッケージです。デザインを統一する意味でも基本的なコントロールはComponentOneにがっつり依存して実装します。WPFの標準コントロールはあまりに素っ気なさ過ぎますが、業務システムで本格的にデザイナーに参加いただくことは難しいでしょう。OSSのテーマも存在しますが、業務用ととしてみるとコントロールが不十分で、十分なコントロールを寄せ集めるとデザインがちぐはぐになるか、デザインを統一するのに大きなコストが必要となります。統合パッケージのテーマにがっつり依存して、使い勝手がよく統一されたデザインのもとに開発するのが最善だと実感しています。
 
