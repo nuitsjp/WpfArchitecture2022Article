@@ -44,7 +44,7 @@
 また下記の2つも概要は理解できていることが好ましいです。
 
 * Clean Architecture
-* ドメイン駆動設計(DDD)
+* ドメイン駆動設計（DDD）
 
 Clean Architectureについては、筆者のブログである「[世界一わかりやすいClean Architecture](https://www.nuits.jp/entry/easiest-clean-architecture-2019-09)」をあわせて読んでいただけると、本稿のアーキテクチャの設計意図が伝わりやすいかと思います。
 
