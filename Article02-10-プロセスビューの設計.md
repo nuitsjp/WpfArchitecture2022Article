@@ -77,7 +77,7 @@ await _presentationService.NavigateToFirstAsync("Hello, KAMISHIBAI!");
 
 ![](/Article02/スライド35.PNG)
 
-WPFとWeb APIの初期化処理を実施するProgramクラスを含むプロジェクト、それぞれAdventureWorks.Purchasing.WpfとAdventureWorks.Purchasing.WebApiを追加しました。
+WPFとWeb APIの初期化処理を実施するProgramクラスを含むプロジェクト、それぞれAdventureWorks.Purchasing.WpfとAdventureWorks.Purchasing.AspNetCoreを追加しました。
 
 またWPFで重要となるAppクラスをViewのプロジェクトに含めることを合わせて明記しました。テーマやスタイルなどを適用するためには、View側にないと不都合が多いためです。
 
@@ -87,7 +87,7 @@ WPFとWeb APIの初期化処理を実施するProgramクラスを含むプロジ
 
 ![](/Article02/スライド36.PNG)
 
-AdventureWorks.Purchasing.WpfとAdventureWorks.Purchasing.WebApiを追加して依存関係を整理しました。
+AdventureWorks.Purchasing.WpfとAdventureWorks.Purchasing.AspNetCoreを追加して依存関係を整理しました。
 
 # さいごに
 
