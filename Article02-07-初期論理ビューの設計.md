@@ -167,7 +167,7 @@ public interface IVendorRepositoryService : IService<IVendorRepositoryService>
 }
 ```
 
-戻り値がTask<Vendor>とUnaryResult<Vendor>で異なります。UnaryResultはMagicOnionで定義されている構造体なので、これを統合してしまうと、ドメイン層がMagicOnionに依存する形となってしまいうため統合できません。
+戻り値がTask<Vendor>とUnaryResult<Vendor>で異なります。UnaryResultはMagicOnionで定義されている構造体です。これを統合してしまうと、ドメイン層がMagicOnionに依存する形となってしまいうため、今回はあえて分けました。もちろんMagicOnionにガッツリ依存するリスクをとって実装を減らすことで生産性を上げるという選択もあります。ただそれをするなら、コード生成を活用して分けるが実装はしなくて良いという、良いとこどりを狙うほうが個人的には好みではあります。
 
 なお、この時点で完全に正しい必要はありません。おおよそ正しそうな状態にもっていって、あとは後続の設計の中で精度を高めていきます。完全に正しいモデルでなくても、このレベルのモデルがあると後続の検討が容易になります。
 
