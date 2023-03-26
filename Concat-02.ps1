@@ -1,1 +1,1 @@
-Get-ChildItem .\Article02-0* | Get-Content | Set-Content Article02.md 
+Get-ChildItem .\Article02-* | Get-Content | Set-Content Article02.md 
