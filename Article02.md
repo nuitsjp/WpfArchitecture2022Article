@@ -678,6 +678,8 @@ public interface IVendorRepositoryService : IService<IVendorRepositoryService>
 
 さて、新しいコンポーネントが登場したので配置ビューを更新しましょう。
 
+![](/Article02/スライド43.PNG)
+
 これで初期実装ビューの設計はいったん完了とします。
 # データビューの設計
 
