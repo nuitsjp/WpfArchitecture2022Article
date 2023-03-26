@@ -685,7 +685,7 @@ public interface IVendorRepositoryService : IService<IVendorRepositoryService>
 
 データビューでは、データの永続化方法・利用方法を設計します。
 
-とはいえすでに、データはSQL Serverに永続化することは予算編で、十分検討した上で決定しています。
+とは言えすでに、データはSQL Serverに永続化することは予算編で、十分検討した上で決定しています。
 
 そこでこのビューでは、つぎの点について設計します。
 
