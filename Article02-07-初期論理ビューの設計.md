@@ -101,5 +101,75 @@ VendorRepositoryクラスからIVendorRepositoryインターフェイスへの�
 このように外側の詳細の決定によって、内側の設計が容易になることがあります。そのため最外周が決定した段階で具体的な名称を記載しておくと良いと思います。
 
 繰り返しますが。これは抽象化を利用して具象の決定を遅らせることを否定するものではありません。
+## 初期オブジェクトのプロット
+
+さて、前述のレイヤーモデルではさすがにオブジェクトが少なくて、初期の実装ビュー（つまりコンポーネント分割）することも難しいです。これ以上は代表的なユースケースを設計してみないと設計できないかというと、そうでもありません。
+
+1. ドメイン駆動設計
+2. クリーンアーキテクチャ
+3. Web APIを挟んだ三層モデル
+4. UIはWPF
+5. Web APIはMagicOnion
+
+ここまでは決まっています。となると、ユースケースに関係なく、ある程度はクラスを導出できそうです。
+
+おそらくユーザーが何らかの操作をした場合、つぎのような振る舞いになるはずです。
+
+1. ユーザーがViewを操作する
+2. ViewはViewModelを呼ぶ
+3. ViewModelはリポジトリーを呼び出してエンティティの取得を試みる
+4. クライアントからgRPCを利用してサーバーサイドを呼び出す
+5. サーバーサイドはリポジトリーの実装を呼び出してエンティティを取得する
+
+これが正しいとして代表的なオブジェクトをレイヤーモデル内にプロットしてみたのがこちらです。
+
+![](/Article02/スライド38.PNG)
+
+青の破線は呼出し経路です。おおむね、先の手順の通りとなっているのが見て取れます。
+
+ポイントが何点かあります。
+
+データベース操作はWeb APIノード上で実施されて、クライアントからは行われません。そのためViewModelからIVendorRepositoryを呼び出した場合、実際に呼び出されるのはVendorRepositoryではなくて、VendorRepositoryClientです。
+
+VendorRepositoryClientは、内部でIVendorRepositoryServiceを呼び出します。IVendorRepositoryServiceはMagicOnionでgRPCを実装するためのインターフェイスです。VendorRepositoryClientが呼び出すIVendorRepositoryServiceの実体はVendorRepositoryServiceではなくて、MagicOnionによって動的に生成されたオブジェクトになります。ちょっと分かりにくいので、VendorRepositoryClientの抜粋コードを見てみましょう。
+
+```cs
+public class VendorRepositoryClient : IVendorRepository
+{
+    private readonly MagicOnionConfig _config;
+
+    public VendorRepositoryClient(MagicOnionConfig config)
+    {
+        _config = config;
+    }
+
+    public async Task<Vendor> GetVendorByIdAsync(VendorId vendorId)
+    {
+        var server = MagicOnionClient.Create<IVendorRepositoryService>(GrpcChannel.ForAddress(_config.Address));
+        return await server.GetVendorByIdAsync(vendorId);
+    }
+}
+```
+
+GetVendorByIdAsyncメソッドを呼び出すと、コンストラクターでインジェクションされたMagicOnionConfigからIVendorRepositoryServiceを作成し、GetVendorByIdAsyncメソッドを呼び出すことで、ネットワーク経由でサーバーサイドを呼び出します。
+
+IVendorRepositoryServiceとIVendorRepositoryをまとめて1つにしたくなりますが、IVendorRepositoryService側のインターフェイスがMagicOnionにガッツリ依存するため、それはできません。実際のコードを見比べてみましょう。
+
+```cs
+public interface IVendorRepository
+{
+    Task<Vendor> GetVendorByIdAsync(VendorId vendorId);
+}
+
+public interface IVendorRepositoryService : IService<IVendorRepositoryService>
+{
+    UnaryResult<Vendor> GetVendorByIdAsync(VendorId vendorId);
+}
+```
+
+戻り値がTask<Vendor>とUnaryResult<Vendor>で異なります。UnaryResultはMagicOnionで定義されている構造体なので、これを統合してしまうと、ドメイン層がMagicOnionに依存する形となってしまいうため統合できません。
+
+なお、この時点で完全に正しい必要はありません。おおよそ正しそうな状態にもっていって、あとは後続の設計の中で精度を高めていきます。完全に正しいモデルでなくても、このレベルのモデルがあると後続の検討が容易になります。
 
 さて、これ以上は実際のユースケースを設計しながら進めたほうが良いでしょう。ということで、初期の論理ビューとしては、いったんこの辺りとしておきます。
+

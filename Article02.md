@@ -186,9 +186,9 @@ MVVMパターンで設計する場合、ViewはViewModelに依存しますが、
    3. 初期非機能要件ビューの設計
    4. 初期配置ビューの設計
    5. 初期論理ビューの設計
-   6. データビューの設計
-       1. 初期実装ビューの設計
-   7. プロセスビューの設計
+   6. 初期実装ビューの設計
+   7. データビューの設計
+   8. プロセスビューの設計
 2. 後編
    1. 代表的なユースケースの実現
    2. 非機能要件の実現
@@ -565,8 +565,118 @@ VendorRepositoryクラスからIVendorRepositoryインターフェイスへの�
 このように外側の詳細の決定によって、内側の設計が容易になることがあります。そのため最外周が決定した段階で具体的な名称を記載しておくと良いと思います。
 
 繰り返しますが。これは抽象化を利用して具象の決定を遅らせることを否定するものではありません。
+## 初期オブジェクトのプロット
+
+さて、前述のレイヤーモデルではさすがにオブジェクトが少なくて、初期の実装ビュー（つまりコンポーネント分割）することも難しいです。これ以上は代表的なユースケースを設計してみないと設計できないかというと、そうでもありません。
+
+1. ドメイン駆動設計
+2. クリーンアーキテクチャ
+3. Web APIを挟んだ三層モデル
+4. UIはWPF
+5. Web APIはMagicOnion
+
+ここまでは決まっています。となると、ユースケースに関係なく、ある程度はクラスを導出できそうです。
+
+おそらくユーザーが何らかの操作をした場合、つぎのような振る舞いになるはずです。
+
+1. ユーザーがViewを操作する
+2. ViewはViewModelを呼ぶ
+3. ViewModelはリポジトリーを呼び出してエンティティの取得を試みる
+4. クライアントからgRPCを利用してサーバーサイドを呼び出す
+5. サーバーサイドはリポジトリーの実装を呼び出してエンティティを取得する
+
+これが正しいとして代表的なオブジェクトをレイヤーモデル内にプロットしてみたのがこちらです。
+
+![](/Article02/スライド38.PNG)
+
+青の破線は呼出し経路です。おおむね、先の手順の通りとなっているのが見て取れます。
+
+ポイントが何点かあります。
+
+データベース操作はWeb APIノード上で実施されて、クライアントからは行われません。そのためViewModelからIVendorRepositoryを呼び出した場合、実際に呼び出されるのはVendorRepositoryではなくて、VendorRepositoryClientです。
+
+VendorRepositoryClientは、内部でIVendorRepositoryServiceを呼び出します。IVendorRepositoryServiceはMagicOnionでgRPCを実装するためのインターフェイスです。VendorRepositoryClientが呼び出すIVendorRepositoryServiceの実体はVendorRepositoryServiceではなくて、MagicOnionによって動的に生成されたオブジェクトになります。ちょっと分かりにくいので、VendorRepositoryClientの抜粋コードを見てみましょう。
+
+```cs
+public class VendorRepositoryClient : IVendorRepository
+{
+    private readonly MagicOnionConfig _config;
+
+    public VendorRepositoryClient(MagicOnionConfig config)
+    {
+        _config = config;
+    }
+
+    public async Task<Vendor> GetVendorByIdAsync(VendorId vendorId)
+    {
+        var server = MagicOnionClient.Create<IVendorRepositoryService>(GrpcChannel.ForAddress(_config.Address));
+        return await server.GetVendorByIdAsync(vendorId);
+    }
+}
+```
+
+GetVendorByIdAsyncメソッドを呼び出すと、コンストラクターでインジェクションされたMagicOnionConfigからIVendorRepositoryServiceを作成し、GetVendorByIdAsyncメソッドを呼び出すことで、ネットワーク経由でサーバーサイドを呼び出します。
+
+IVendorRepositoryServiceとIVendorRepositoryをまとめて1つにしたくなりますが、IVendorRepositoryService側のインターフェイスがMagicOnionにガッツリ依存するため、それはできません。実際のコードを見比べてみましょう。
+
+```cs
+public interface IVendorRepository
+{
+    Task<Vendor> GetVendorByIdAsync(VendorId vendorId);
+}
+
+public interface IVendorRepositoryService : IService<IVendorRepositoryService>
+{
+    UnaryResult<Vendor> GetVendorByIdAsync(VendorId vendorId);
+}
+```
+
+戻り値がTask<Vendor>とUnaryResult<Vendor>で異なります。UnaryResultはMagicOnionで定義されている構造体なので、これを統合してしまうと、ドメイン層がMagicOnionに依存する形となってしまいうため統合できません。
+
+なお、この時点で完全に正しい必要はありません。おおよそ正しそうな状態にもっていって、あとは後続の設計の中で精度を高めていきます。完全に正しいモデルでなくても、このレベルのモデルがあると後続の検討が容易になります。
 
 さて、これ以上は実際のユースケースを設計しながら進めたほうが良いでしょう。ということで、初期の論理ビューとしては、いったんこの辺りとしておきます。
+
+# 初期実装ビューの設計
+
+論理ビューで抽出されたオブジェクトを、どのようにコンポーネントに分割配置するか設計します。ここでいうコンポーネントとはVisual Studio上のプロジェクト（.csproj）のことです。
+
+論理ビューで抽出されたオブジェクトを、どのプロジェクトに配置するか決定することが実装ビューの設計です。
+
+もちろんモノリシックなプロジェクトでも作れない事はありませんが、.NETの場合は名前空間スコープがないので、実装時にあやまった依存を防ぐためにはプロジェクトを分割する必要があります。そのため依存関係を制限したい単位でプロジェクトを分割する必要があります。
+
+今回はつぎのような方針でプロジェクトを定義します。
+
+1. トップレベルの名前空間はAdventureWorksとし、AdventureWorksドメインのオブジェクトを定義する
+2. 購買ドメインの名前空間はAdventureWorks.Purchasingとし、購買ドメインのオブジェクトを定義する
+3. インターフェイスの実装クラスを別プロジェクトに分離する場合、インターフェイル名前空間＋実装アーキテクチャ名前空間に定義する（例：IVendorRepositoryのDB実装の名前空間はAdventureWorks.Purchasing.SqlServer）
+
+3は実装アーキテクチャじゃなくて、Repositoryを配置するプロジェクトなので、AdventureWorks.Purchasing.Repositoryのような名前も考えられます。しかし、実際にはDB操作する実装と、リモートを呼び出す実装の2つがあり、名前が被ってしまいます。またデータをクラウドに永続化する場合、業務のトランザクションデータはRDBに、画像のようなバイナリーデータはBLOBサービスに置くといった形で、リポジトリーの保管先が別アーキテクチャになる可能性もあります。そのため、具象クラスを実装するコンポーネントの名称には、実装するアーキテクチャを表す名前にしておいた方が良いと考えています。
+
+上記を基本として、論理ビューのオブジェクトをそれぞれのプロジェクトに配置した実装ビューが、つぎの通りです。
+
+![](/Article02/スライド39.PNG)
+
+|プロジェクト|説明|
+|--|--|
+|AdventureWorks|AdventureWorksドメインのドメインオブジェクトを含む|
+|AdventureWorks.Purchasing|購買ドメインのドメインオブジェクトを含む|
+|AdventureWorks.Purchasing.View|購買ドメインのViewを含む|
+|AdventureWorks.Purchasing.ViewModel|購買ドメインのViewModelを含む|
+|AdventureWorks.Purchasing.MagicOnion|クライアントからサーバー上のリポジトリー実装を呼び出すためのMagicOnionClient|
+|AdventureWorks.Purchasing.MagicOnion.Service|リポジトリーをクライアントに対してgRPCインターフェイスで公開するWeb API実装|
+
+論理レイヤーモデルと並べてみると、正しく設計されているのが分かりやすいかと思います。
+
+![](/Article02/スライド42.PNG)
+
+適切な単位でプロジェクト分割されていて、依存方向も問題ないことが見て取れます。
+
+## 配置ビューの更新
+
+さて、新しいコンポーネントが登場したので配置ビューを更新しましょう。
+
+これで初期実装ビューの設計はいったん完了とします。
 # データビューの設計
 
 データビューでは、データの永続化方法・利用方法を設計します。
@@ -598,7 +708,7 @@ VendorRepositoryクラスからIVendorRepositoryインターフェイスへの�
 2. ビューはまったく同じ構造でも、ユースケース別に作成する
 3. ビューはユースケース専用のスキーマ上に作成する
 
-ビューをデータベース上の抽象化レイヤーとして扱うことで、物理テーブル変更の影響を最小限で抑えるようににしています。
+ビューをデータベース上の抽象化レイヤーとして扱うことで、物理テーブル変更の影響を最小限で抑えるようににしています。なおドメインも同様で、ドメイン単位のユーザー・スキーマを利用します。
 
 ユーザーをユースケース別に切り替える場合、アーキテクチャ的に考慮が必要なのでここで記載しました。具体的には後述します。
 
@@ -655,9 +765,9 @@ Databaseパッケージに接続文字列の解決や、データベース接続
 
 IDatabaseの機能的な実装はDatabaseクラスで実装しますが、これをそのまま使うと、同一のDIコンテナー上で異なるデータベースユーザーを使い分けられません。
 
-そこでDatabaseクラスは抽象クラスにしておいて、直接利用できないようにします。その上で、ユースケース単位でDatabaseクラスの実装クラスを容易します。
+そこでDatabaseクラスは抽象クラスにしておいて、直接利用できないようにします。その上で、ドメインやユースケース単位でDatabaseクラスの実装クラスを用意します。データベースのユーザー・パスワードは、このドメイン・ユースケース単位のDatabaseクラスで管理します。
 
-上図では発注（Purchasing）ユースケースと再発注（RePurchasing）でそれぞれDatabaseの実装クラスを用意しています。これらをそれぞれのRepositoryに注入（Injection）して、つぎのように利用します。
+上図では購買ドメイン（AdventureWorks.Purchasing.SqlServer）と再発注ユースケース（AdventureWorks.Purchasing.RePurchasing.SqlServer）でそれぞれDatabaseの実装クラスを用意しています。これらをそれぞれのRepositoryに注入（Injection）して、つぎのように利用します。
 
 ```cs
 public class VendorRepository : IVendorRepository
@@ -694,7 +804,7 @@ Databaseの実装クラスでユーザーを指定して、DIをIDatabaseでは�
 
 つづいて論理ビューを更新します。
 
-![](/Article02/スライド29.PNG)
+![](/Article02/スライド41.PNG)
 
 大きな同心円はもともと購買ドメインの実現を表現したものです。データベースドメインは別のドメインで、カスタマー・サプライヤー関係にあります。そのため別の円に切り出しました。
 
@@ -702,21 +812,17 @@ Databaseの実装クラスでユーザーを指定して、DIをIDatabaseでは�
 
 ただデータベースドメインは現在のところ書ききれますし、その方が分かりやすいので現時点ではこうしてあります。ごちゃごちゃして書ききれなくなったら、またその時に考えます。
 
-## 実装ビューの作成
+## 実装ビューの更新
 
-論理ビューに少しオブジェクトが登場してきたので、それらをどのようにコンポーネント（プロジェクト）分割するか考えていきましょう。
-
-ということでコンポーネント図を使って実装ビューを作成します。
+では、これらのオブジェクトをプロジェクトに配置しましょう。
 
 ![](/Article02/スライド32.PNG)
 
 IDatabaseなどはAdventureWorks社のデータベースドメインなので、AdventureWorks.Databaseコンポーネントに配置しました。
 
-VendorなどはAdventureWorks.Purchasingコンポーネントを購買ドメインとして配置しました。
+PurchasingDatabaseは、VendorRepositoryと同じAdventureWorks.Purchasing.SqlServerプロジェクトに配置しました。
 
-VendorRepositoryやPurchasingDatabaseは、AdventureWorks.Purchasing.SqlServerコンポーネントに配置しました。これは少し議論の余地があるかもしれません。
-
-SqlServerという名称ではなく、たとえばRepositoryのような名前も考えられます。現時点では永続化先は一種類なのでRepositoryとう名前を使っても問題ありません。ただクラウドに置く場合、業務のトランザクションデータはRDBに、画像のようなバイナリーデータはBLOBサービスに置くといった形で、リポジトリーの保管先が別アーキテクチャになる可能性があります。そのため、具象クラスを実装するコンポーネントの名称には、実装するアーキテクチャを表す名前にしておいた方が良いと考えています。
+RePurchasingDatabaseは、新たにAdventureWorks.Purchasing.RePurchasing.SqlServerプロジェクトを作成して配置しました。
 
 ## 配置ビューの更新
 
@@ -727,103 +833,3 @@ SqlServerという名称ではなく、たとえばRepositoryのような名前�
 Dapperの利用も決定したので、併せてプロットしています。
 
 これでいったん、データビューの設計は完了です。
-# プロセスビューの設計
-
-プロセスビューでは、並行性やパフォーマンス要件で、特別な検討が必要と考えられるアーキテクチャを設計します。ほとんどの場合は、.NET（async/awaitなど）やASP.NET Coreなどがになってくれるため、それらを単純に使うだけなら特別な設計は不要です。
-
-今回のケースではWPFのプロセスの起動のみを設計の対象とします。
-
-というのはWPFアプリケーションをGeneric Host上で利用したいためです。
-
-Generic HostはASP.NET CoreなどでWebアプリケーションやWeb APIをホスティングするための仕組みです。Generic Hostでは多用な機能が提供されていますが、とくに重要なのは .NET公式のDependency Injection(DI)コンテナーが含まれている点にあります。そのためモダンなサードバーティライブラリはGeneric Host前提のものが多数ありますし、今後でてくる魅力的なライブラリーもGeneric Hostを対象にリリースされるでしょう。
-
-WPFの標準的な実装ではGeneric Hostにホストされていませんが、できないわけではありません。
-
-## フレームワークの選定
-
-WPFをGeneric Host上にホストするライブラリーは、つぎの2つがNuGet上に公開されています。
-
-1. [Dapplo.Microsoft.Extensions.Hosting.Wpf](https://github.com/dapplo/Dapplo.Microsoft.Extensions.Hosting)
-2. [Wpf.Extensions.Hosting](https://github.com/nuitsjp/Wpf.Extensions.Hosting)
-
-今回は後者のWpf.Extensions.Hostingを利用します。
-
-これはWpf.Extensions.Hostingをベースとしている画面遷移フレームワーク「[Kamishibai](https://github.com/nuitsjp/Kamishibai)」を利用したいためです。
-
-Kamishibaiは、つぎのような特徴をもつWPF用の画面遷移フレームワークです。
-
-
-- Generic Hostのサポート
-- MVVMパターンを適用したViewModel起点の画面遷移
-- 型安全性の保証された画面遷移時パラメーター
-- 画面遷移にともなう一貫性あるイベント通知
-- nullableを最大限活用するためのサポート
-
-たとえば画面遷移時に、文字列messageを引数として渡したいとします。その場合、遷移先のViewModelをつぎのように実装します。
-
-```cs
-[Navigate]
-public class FirstViewModel
-{
-    public FirstViewModel(string message)
-    {
-        Message = message;
-    }
-
-    public string Message { get; }
-}
-```
-
-すると専用の画面遷移メソッドが自動生成され、つぎのように呼び出すことができます。
-
-```cs
-await _presentationService.NavigateToFirstAsync("Hello, KAMISHIBAI!");
-```
-
-画面遷移でパラメーターの型不一致が発生したり、デフォルトコンストラクターが前提とならないため、null安全な実装ができる非常に強力な、現状もっとも理想的な画面遷移フレームワーク・・・だと思って私が開発したものです。自画自賛抜きで良くできていると思っているので良かったら使ってみてください。
-
-日本語のドキュメントも十分に用意しています。
-
-- [KAMISHIBAI入門](https://zenn.dev/nuits_jp/books/introduction-to-kamishibai)
-
-## コンテナー初期化とViewの分離
-
-通常WPFプロジェクトを作成すると、アプリケーションのエントリーポイントとXAMLは同じプロジェクト内に作成されます。
-
-しかしこの設計には大きな問題があります。
-
-アプリケーションのエントリーポイントでは、Generic Hostを初期化してアプリケーションをホストします。このときGeneric Hostで利用するDIコンテナーの初期化を行う必要があります。DIコンテナーの初期化を行うという事は、エントリーポイントからはソリューション内のすべてのプロジェクトを参照できる必要があります。
-
-そのため、DIコンテナーの初期化とXAMLを同じプロジェクトに配置すると、XAMLから本来は触る必要のないオブジェクトを操作できるようになってしまいます。
-
-これを防ぐためには、エントリーポイントとViewのプロジェクトを分離する必要があります。
-
-これは実装ビューで表現します。
-
-## 実装ビューと配置ビューの更新
-
-要素が増えてきたので、レイアウトも論理ビューと近い配置に変更しました。
-
-![](/Article02/スライド35.PNG)
-
-ProgramとApp・Windowを別のコンポーネントに分離しました。
-
-配置ビューも更新しましょう。
-
-![](/Article02/スライド36.PNG)
-
-購買アプリを削除して、それぞれAdventureWorks.Purchasing.Appに置き換えて依存関係も整理しました。
-
-クライアントとWeb APIノードの間の依存が一時的に失われましたが、このあとユースケースの実装を設計していくなかで、すぐに登場してきますので、ここではこのままにしておきましょう。
-
-# さいごに
-
-さて、これでやっとユースケースや非機能要件の実装を設計する準備が整いました。
-
-後編は、つぎのような内容で進めて、アーキテクチャ設計を完成に導きたいと思います。
-
-1. 代表的なユースケースの実現
-2. 非機能要件の実現
-3. 開発者ビューの設計
-
-という訳で、ここまでお付き合いありがとうございました！後編で再びお会いしましょう！
