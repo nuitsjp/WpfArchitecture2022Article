@@ -140,13 +140,15 @@ JWTを使用すると、クライアントとサーバー間で認証情報を�
 
 あたり前ですが、非常に良くできた仕組みですね。
 
-## 論理ビュー設計
+## 認証ドメインの論理ビュー設計
 
 さて、これらの検討結果から、論理ビューを設計してみましょう。そこんな感じでしょうか？
 
 ![](Article03/スライド6.PNG)
 
-最外周にUIがありません。認証ドメインは、他のドメインに認証機能を提供するドメインのため、UIが存在しないからです。
+UserSerializerがレイアウトの都合上、右上の左下の2カ所に配置していますがご了承ください。
+
+まず最外周にUIがありません。認証ドメインは、他のドメインに認証機能を提供するドメインのため、UIが存在しないからです。
 
 その代わりにWindows認証を行うためのWeb API（REST）があります。
 
@@ -191,103 +193,19 @@ RESTによる認証は、WPFアプリケーションの起動時に実施しま�
 
 ほかにはアプリケーション本体の画面とは別に、何らかの方法でスプラッシュを表示しておいて、認証し、認証情報をDIコンテナーに登録する方法もありだと思います。ただ今回は、初期画面で処理するようにしています。
 
-では実際にコードも見ながら説明していきましょう。
+では実際ながれを追っていきましょう。
 
-初期画面の遷移時にIAuthenticationServiceを呼び出して、サーバーサイドの認証サービスを呼び出します。
+①初期画面の遷移時にIAuthenticationServiceを呼び出します。
 
-```cs
-private readonly IAuthenticationService _authenticationService;
+IAuthenticationServiceの実体はAuthenticationServiceで、HttpClientを利用して、②サーバーサイドの認証サービスを呼び出します。ここのAPIは前述のとおりRESTです。
 
-public async Task OnNavigatedAsync(PostForwardEventArgs args)
-{
-    var result = await _authenticationService.TryAuthenticateAsync();
-    if (result.IsAuthenticated is false)
-    {
-        _presentationService.ShowMessage(
-            "ユーザー認証に失敗しました。",
-            "認証エラー",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
-
-        // アプリケーションを終了する。
-        Environment.Exit(1);
-    }
-}
-```
-
-認証に失敗したら、アラートを表示した後にシステムを強制的に終了します。
-
-AuthenticationServiceのTryAuthenticateAsyncでは、HttpClientを利用して認証RESTサービスを呼び出します。
-
-```cs
-/// <summary>
-/// Windows認証を有効化したHTTPクライアント
-/// </summary>
-private static readonly HttpClient HttpClient = new(new HttpClientHandler { UseDefaultCredentials = true });
-
-private readonly Audience _audience;
-
-public async Task<AuthenticateResult> TryAuthenticateAsync()
-{
-    try
-    {
-        var baseAddress = Environments.GetEnvironmentVariable(
-            "AdventureWorks.Authentication.Jwt.Rest.BaseAddress",
-            "https://localhost:4001");
-        var token = await HttpClient.GetStringAsync($"{baseAddress}/Authentication/{_audience.Value}");
-        _context.CurrentTokenString = token;
-        _context.CurrentUser = UserSerializer.Deserialize(token, _audience);
-        return new(true, Context);
-    }
-    catch
-    {
-        return new(false, Context);
-    }
-}
-```
-
-認証APIにaudienceを渡しています。JWTのaudience（audクレーム）は、トークンの受信者を特定するために使用されるます。購買ドメインでは、購買APIサービスを呼び出します。この購買APIサービスがトークンの受信者になります。
-
-認証処理を呼び出すさい、購買APIサービスを表すaudクレームを渡します。
-
-なおAPIのアドレス（https://foo.co.jpなど）は、実運用や各種テスト環境、実装環境すべてで異なります。その問題を解決する何らかの方法が必要です。個人的には環境変数を好んでいます。設定ファイルに記述する方法もありますが、その場合、ビルドしたモジュールに含まれる設定ファイルを環境別に書き換える必要があって、トラブルになりがちです。モジュールはバイナリーレベルでつねに完全に一致する形で扱うのが好みです。そこで環境依存の値を環境変数から取得することで、その問題を避ける方法をよく利用します。
-
-さて、AuthenticationServiceを利用すると、ASP.NET CoreのAuthenticationControllerが呼び出されます。下記のコードが呼び出されるメソッドです。
-
-```cs
-private readonly IUserRepository _userRepository;
-
-[HttpGet("{audience}")]
-public async Task<string> AuthenticateAsync(string audience)
-{
-    var account = User.Identity!.Name!;
-    if (await _userRepository.TryGetUserByIdAsync(new LoginId(account), out var user))
-    {
-        // ここで本来はuserとがaudienceを照らし合わせて検証する
-
-        // 認証が成功した場合、ユーザーからJWTトークンを生成する。
-        return UserSerializer.Serialize(user, Properties.Resources.PrivateKey, new Audience(audience));
-    }
-
-    throw new AuthenticationException();
-}
-```
-
-ASP.NET Coreでは、Windows認証を有効にしておくと「User.Identity!.Name!」から、簡単に呼び出し元のindowsアカウントを特定できます。
-
-アカウントを取得したら、IUserRepositoryインターフェイル経由でUserRepositoryを呼び出してUserオブジェクトを取得することでユーザーを認証します。
-
-その後、何らかの形でuserとaudienceを照らし合わせて、audienceを利用できるか検証（認可）します。
-
-問題なければ、UserSerializerを利用して認証されたUserをJSON Web Token（JWT）にシリアライズします。この時秘密鍵で署名することで、公開鍵でトークンが正しいものであることを検証できるようにします。JWTはレスポンスとして返却します。
+サーバーサイドではAuthenticationControllerがリクエストを受け取り、③Windows認証を使ってアカウントを特定し、④IUserRepositoryを利用して、アカウントに対応する適切なUserか判定します。
 
 ![](Article03/スライド8.PNG)
 
-AuthenticationServiceでは正しいレスポンスが帰ってきたら、認証が正しく行われたものと判断します。
+適切なユーザーであれば、⑤UserSerializerを利用して認証されたUserをJSON Web Token（JWT）にシリアライズします。この時秘密鍵で署名することで、公開鍵でトークンが正しいものであることを検証できるようにします。JWTはレスポンスとして返却します。
 
-ここでJWTを公開鍵をもちいて複合することで、認証情報の詳細を取得できます。JWTには任意の情報を詰めることができますが、あまり情報を詰めすぎると、gRPCの呼出し時に通信量が増えてしまいます。
-
-今回はJWTには従業員IDだけ詰めることにしましたが、ロールのような権限情報を付与しても良いと思います。
+AuthenticationServiceではレスポンスからトークンを受け取り、⑥トークンを復元してユーザー情報をClientAuthenticationContextへ設定します。
 
 ### gRPC利用時のユーザーの検証処理
 
@@ -295,120 +213,12 @@ AuthenticationServiceでは正しいレスポンスが帰ってきたら、認�
 
 ![](Article03/スライド9.PNG)
 
-ユーザーが購買アプリケーションで何らかの操作をすると、ViewModelはgRPCのクライアント経由でサーバーサイドを呼び出します。
+①ユーザーが購買アプリケーションで何らかの操作をすると、ViewModelはgRPCのクライアント経由でサーバーサイドを呼び出します。
 
-この時、gRPCクライアントにAuthenticationFilterを適用してJWTトークンをHTTPヘッダーに付与します。
+この時、gRPCクライアントにAuthenticationFilterを適用して②JWTトークンをHTTPヘッダーに付与します。
 
-IAuthenticationContextはUserと、認証済のトークンを保持しています。
+gRPCのサーバーサイドでは、AuthenticationFilterAttributeが受け取ったリクエストのヘッダーのauthorizationからJWTを取得します。取得したトークンを③UserSerializer.Deserializeをつかって複合します。
 
-```cs
-public interface IAuthenticationContext
-{
-    /// <summary>
-    /// 認証済ユーザーを取得する。
-    /// </summary>
-    User CurrentUser { get; }
+ただしく複合できたら、④ServerAuthenticationContextに設定することで、以後必要に応じて利用します。
 
-    /// <summary>
-    /// 認証済みトークンを取得する。
-    /// </summary>
-    public string CurrentTokenString { get; }
-}
-```
-
-gRPC呼び出し時に、HTTPヘッダーへ認証済みトークンを付与します。
-
-```cs
-public async ValueTask<ResponseContext> SendAsync(RequestContext context, Func<RequestContext, ValueTask<ResponseContext>> next)
-{
-    var header = context.CallOptions.Headers;
-    header.Add("authorization", $"Bearer {_authenticationContext.CurrentTokenString}");
-
-    return await next(context);
-}
-```
-
-authorizationにBearer～の形式でトークンを設定するのは、OAuthの仕組みに則っています。
-
-トークンはHTTPヘッダーに格納されて、メッセージとともにリモートへ送信します。
-
-サーバーサイドでgRPCが呼び出された場合、リクエストをいったんすべてAuthenticationFilterAttributeで受け取り、トークンを検証します。
-
-```cs
-private readonly ServerAuthenticationContext _serverAuthenticationContext;
-
-public override async ValueTask Invoke(ServiceContext context, Func<ServiceContext, ValueTask> next)
-{
-    try
-    {
-        var entry = context.CallContext.RequestHeaders.Get("authorization");
-        var token = entry.Value.Substring("Bearer ".Length);
-        _serverAuthenticationContext.CurrentUser = UserSerializer.Deserialize(token, _audience);
-        _serverAuthenticationContext.CurrentTokenString = token;
-
-        await next(context); // next
-    }
-    catch (Exception e)
-    {
-        _logger.LogWarning(e, e.Message);
-        context.CallContext.GetHttpContext().Response.StatusCode = StatusCodes.Status401Unauthorized;
-    }
-    finally
-    {
-        _serverAuthenticationContext.ClearCurrentUser();
-    }
-}
-```
-
-リクエストヘッダーのauthorizationからJWTを取得します。
-
-取得したトークンをUserSerializer.Deserializeをつかって署名を検証しつつ複合し、ServerAuthenticationContextに設定することで、以後必要に応じて利用します。
-
-サーバーサイドではIAuthenticationContextをDIすることで、インスタンスを使いまわす想定です。単純にプロパティに設定してしまうと、他者の権限で実行されてしまう可能性があります。そのため、サーバー用のIAuthenticationContextはつぎのように実装しています。
-
-```cs
-public class ServerAuthenticationContext : IAuthenticationContext
-{
-    private readonly AsyncLocal<User> _currentUserAsyncLocal = new();
-
-    public User CurrentUser
-    {
-        get
-        {
-            if (_currentUserAsyncLocal.Value is null)
-                throw new InvalidOperationException("認証処理の完了時に利用してください。");
-
-            return _currentUserAsyncLocal.Value;
-        }
-
-        internal set => _currentUserAsyncLocal.Value = value;
-    }
-}
-```
-
-実体はAsyncLocal&lt;T>に保持します。これによって同一スレッド上ではかならず同じユーザーが取得できます。また設定はフィルターを通して行い、設定できた場合のみgRPCの実際の処理が実行されるます。
-
-あとは必要な箇所でIAuthenticationContextをDIコンテナーから注入して利用します。
-
-```cs
-public class VendorRepositoryService : ServiceBase<IVendorRepositoryService>, IVendorRepositoryService
-{
-    private readonly IVendorRepository _repository;
-
-    private readonly IAuthenticationContext _authenticationContext;
-
-    public VendorRepositoryService(IVendorRepository repository, IAuthenticationContext authenticationContext)
-    {
-        _repository = repository;
-        _authenticationContext = authenticationContext;
-    }
-
-    public async UnaryResult<Vendor> GetVendorByIdAsync(VendorId vendorId)
-    {
-        // 呼び出し元のユーザー情報を利用する。
-        var user = _authenticationContext.CurrentUser;
-
-        return await _repository.GetVendorByIdAsync(vendorId);
-    }
-}
-```
+概ね悪くなさそうですね。では実際にコードを書きつつ、実装ビューを作って詳細に設計を落としていきましょう。
