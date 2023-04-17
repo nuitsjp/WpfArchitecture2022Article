@@ -1,202 +1,145 @@
-# 例外処理アーキテクチャ
+### 検証処理の実装による検証
 
-つづいて例外処理アーキテクチャについて設計します。例外処理は、WPFとgRPCでまったく異なります。そのため、それぞれ個別に設計していきましょう。
+さて、続いてはアプリケーション操作時にgRPCを呼び出した際の検証処理です。
 
-## WPFの例外処理アーキテクチャ
+![](Article03/スライド13.PNG)
 
-WPFの例外処理は、特別な意図がある場合を除いて、標準で提供されている各種の例外ハンドラーで一括して処理することにします。
+ユーザーが購買アプリケーションで何らかの操作をすると、ViewModelはgRPCのクライアント経由でサーバーサイドを呼び出します。
 
-実際問題、起こりうる例外をすべて正しく把握して、個別に設計・実装することはそもそも現実味がありません。特定の例外のみ発生個所で個別に例外処理をしても、全体としての一貫性が失われることが多いです。また、例外の隠ぺいや必要なログ出力のもれにつながりやすいです。であれば、グローバルな例外ハンドラー系に基本的には任せて一貫した例外処理をまずは提供するべきかと思います。
+ちょっとこのままだと、具体的な実装が見えにくいので、前回の「設計編　全編」で購買ドメインのVendorオブジェクトをIVendorRepository経由で取得するオブジェクトを配置してみましょう。また手狭になってしまうので、認証側のオブジェクトをいったん削除したもでるがつぎの図です。
 
-ただもちろんすべてを否定するわけではありません。
+![](Article03/スライド14.PNG)
 
-たとえば、何らかのファイル処理をするときにファイルのロックを取得するために、書き込みモードでオープンしておく、なんてことはありがちだと思います。このとき、事前に別のプロセスにファイルが開かれていた場合は、例外が発生するでしょう。そのような場合には、ロック処理で例外をキャッチして、ロックできなかったことをユーザーに伝えるべきでしょう。
+ではViewModeから順番にコードを追って実装を確認していきましょう。
 
-このように、正常なビジネス処理において起こりうる例外については、個別に対応してあげた方が好ましいものも多いでしょう。
-
-逆にたとえば、サーバーサイドのAPIを利用しようとした場合、通信状態が悪ければ例外が発生するでしょう。これらは個別に扱わず、必要であれば適当なリトライ処理の上で、特別な処理は行わずにシステムエラーとしてしまった方が良いでしょう。
-
-- 業務シナリオとして起こりうるケースの判定に、例外を用いる必要がある場合は個別処理をする。
-- 業務シナリオとは関係なく、システム的な要因による例外は、例外ハンドラーで共通処理をする。
-
-おおまかな方針としては、こんな感じが好ましいと考えています。
-
-ここでは共通の例外ハンドラーの扱いについて設計していきましょう。
-
-### 例外ハンドリングの初期化
-
-今回は画面処理フレームワークにKamishibaiをもちいて、WPFアプリケーションはGeneric Host上で動作させます。
-
-そのため、例外ハンドリングの初期化はつぎのように行います。
+ユーザーが何らかの操作をしたとき、ViewModeにDIされたIVendorRepositoryを呼び出してVendorオブジェクトを取得します。
 
 ```cs
-var builder = KamishibaiApplication<TApplication, TWindow>.CreateBuilder();
+private readonly IVendorRepository _vendorRepository;
 
-// 各種DIコンテナーの初期化処理
-
-var app = builder.Build();
-app.Startup += SetupExceptionHandler;
-await app.RunAsync();
+private async Task PurchaseAsync()
+{
+    var vendor = await _vendorRepository.GetVendorByIdAsync(_selectedRequiringPurchaseProduct!.VendorId);
 ```
 
-ビルドしたappのStartupイベントをフックして、アプリケーションが起動した直後にSetupExceptionHandlerを呼び出して、例外ハンドリングを初期化します。
-
-SetupExceptionHandlerの中では、つぎの3つのハンドラーを利用して例外処理を行います。
-
-1. Application.Current.DispatcherUnhandledException
-2. AppDomain.CurrentDomain.UnhandledException
-3. TaskScheduler.UnobservedTaskException
-
-### Application.Current.DispatcherUnhandledException
-
-具体的な実装はつぎの通りです。
+このとき実際には、IVendorRepositoryを実装したVendorRepositoryClientが呼び出されます。
 
 ```cs
-Application.Current.DispatcherUnhandledException += (sender, args) =>
-{
-    Log.Warning(args.Exception, "Dispatcher.UnhandledException sender:{Sender}", sender);
-    // 例外処理の中断
-    args.Handled = true;
+private IAuthenticationContext _authenticationContext;
+private Endpoint _endpoint;
 
-    // システム終了確認
-    var confirmResult = MessageBox.Show(
-        "システムエラーが発生しました。作業を継続しますか？",
-        "システムエラー",
-        MessageBoxButton.YesNo,
-        MessageBoxImage.Warning,
-        MessageBoxResult.Yes);
-    if (confirmResult == MessageBoxResult.No)
-    {
-        Environment.Exit(1);
-    }
-};
+public async Task<Vendor> GetVendorByIdAsync(VendorId vendorId)
+{
+    var server = MagicOnionClient.Create<IVendorRepositoryService>(
+        GrpcChannel.ForAddress(_endpoint.Uri),
+        new IClientFilter[]
+        {
+            new AuthenticationFilter(_authenticationContext)
+        });
+    return await server.GetVendorByIdAsync(vendorId);
+}
+
 ```
 
-例外情報をログに出力したあと、例外処理を中断します。
+MagicOnionClientからIVendorRepositoryServiceのインスタンスを動的に生成して、サーバーサイドを呼び出します。
 
-その後に、システムの利用を継続するかどうか、ユーザーに確認を取り、継続が選ばれなかった場合はアプリケーションを終了します。
+IVendorRepositoryServiceを生成するときにAuthenticationFilterを適用します。
 
-WPFの例外ハンドラーは、基本的には[Application.DispatcherUnhandledException](https://learn.microsoft.com/ja-jp/dotnet/api/system.windows.application.dispatcherunhandledexception?view=windowsdesktop-8.0)で例外を処理します。Application.DispatcherUnhandledExceptionでは例外チェーンを中断できますが、それ以外では中断できないためです。
-
-Environment.Exit(1)を呼び出さなくても、最終的にはアプリケーションは終了します。しかし、Environment.Exit(1)を呼び出さないと、つづいてAppDomain.CurrentDomain.UnhandledExceptionが呼び出されます。例外の2重処理になりやすいため、明示的に終了してしまうのが好ましいでしょう。
-
-### AppDomain.CurrentDomain.UnhandledException
-
-先のApplication.DispatcherUnhandledExceptionでは、つぎのように、明示的に作成したThreadで発生した例外は補足できません。
+AuthenticationFilterではつぎのように、認証時に取得したトークンをHTTPヘッダーに付与します。
 
 ```cs
-var thread = new Thread(() =>
+public async ValueTask<ResponseContext> SendAsync(RequestContext context, Func<RequestContext, ValueTask<ResponseContext>> next)
 {
-    throw new NotImplementedException();
-});
-thread.Start();
-```
+    var header = context.CallOptions.Headers;
+    header.Add("authorization", $"Bearer {_authenticationContext.CurrentTokenString}");
 
-この場合は、[AppDomain.UnhandledException](https://learn.microsoft.com/ja-jp/dotnet/api/system.appdomain.unhandledexception?view=net-7.0)を利用して例外を補足します。
-
-AppDomain.CurrentDomain.UnhandledExceptionでは、つぎのようにログ出力の後に、ユーザーにエラーを通知してアプリケーションを終了します。AppDomain.CurrentDomain.UnhandledExceptionでは例外チェーンを中断できず、この後アプリケーションはかならず終了されるため、確認はせずに通知だけします。
-
-```cs
-AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
-{
-    Log.Warning(args.ExceptionObject as Exception, "AppDomain.UnhandledException sender:{Sender}", sender);
-    
-    // システム終了通知
-    MessageBox.Show(
-        "システムエラーが発生しました。作業を継続しますか？",
-        "システムエラー",
-        MessageBoxButton.OK,
-        MessageBoxImage.Error,
-        MessageBoxResult.OK);
-
-    Environment.Exit(1);
-};
-```
-
-このとき、Environment.Exit(1)を呼び出すことで、Windowsのアプリケーションのクラッシュダイアログの表示を抑制します。
-
-### TaskScheduler.UnobservedTaskException
-
-つぎのようにTaskをasync/awaitせず、投げっぱなしでバックグラウンド処理した際に例外が発生した場合は、[TaskScheduler.UnobservedTaskException](https://learn.microsoft.com/ja-jp/dotnet/api/system.threading.tasks.taskscheduler.unobservedtaskexception?view=net-7.0)で補足します。
-
-```cs
-private void OnClick(object sender, RoutedEventArgs e)
-{
-    Task.Run(() =>
-    {
-        throw new NotImplementedException();
-    });
+    return await next(context);
 }
 ```
 
-ただTaskScheduler.UnobservedTaskExceptionは例外が発生しても即座にコールされないため注意が必要です。
+authorizationにBearer～の形式でトークンを設定するのは、OAuthの仕組みに則っています。トークンはHTTPヘッダーに格納されて、メッセージとともにリモートへ送信します。
 
-ユーザーの操作とは無関係に、「いつか」発行されるため、ユーザーに通知したり、アプリケーションを中断しても混乱を招くだけです。
-
-未処理の例外は全般的に、あくまで最終手段とするべきものですが、とくにTaskScheduler.UnobservedTaskExceptionは最後の最後の保険と考えて、つぎのようにログ出力程度に留めておくのが良いでしょう。
+サーバーサイドでgRPCが呼び出された場合、リクエストをいったんすべてAuthenticationFilterAttributeで受け取り、トークンを検証します。
 
 ```cs
-TaskScheduler.UnobservedTaskException += (sender, args) =>
+private readonly ServerAuthenticationContext _serverAuthenticationContext;
+
+public override async ValueTask Invoke(ServiceContext context, Func<ServiceContext, ValueTask> next)
 {
-    Log.Warning(args.Exception, "TaskScheduler.UnobservedTaskException sender:{Sender}", sender);
-    args.SetObserved();
-};
+    try
+    {
+        var entry = context.CallContext.RequestHeaders.Get("authorization");
+        var token = entry.Value.Substring("Bearer ".Length);
+        _serverAuthenticationContext.CurrentUser = UserSerializer.Deserialize(token, _audience);
+        _serverAuthenticationContext.CurrentTokenString = token;
+    }
+    catch (Exception e)
+    {
+        _logger.LogWarning(e, e.Message);
+        context.CallContext.GetHttpContext().Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+
+    try
+    {
+        await next(context);
+    }
+    finally
+    {
+        _serverAuthenticationContext.ClearCurrentUser();
+    }
+}
 ```
 
-SetObservedは .NET Framework 4以前はアプリケーションが終了してしまうことがありましたが、現在は呼ばなくても挙動は変わらないはずです。一応念のため呼び出しています。
+リクエストヘッダーのauthorizationからJWTを取得します。
 
-## gRPCの例外処理アーキテクチャ
+取得したトークンをUserSerializer.Deserializeをつかって署名を検証しつつ複合し、ServerAuthenticationContextに設定することで、以後必要に応じて利用します。
 
-Web APIで何らかの処理を実行中に例外が発生した場合、通常はリソースを解放してログを出力するくらいしかできません。ほかにで切る事といえば、外部リソース（たとえばデータベース）を利用中に例外が発生したのであればリトライくらいでしょうか？
-
-特殊な事をしていなければリソースの解放はC#のusingで担保するでしょうから、実質的にはログ出力くらいです。
-
-MagicOnionを利用してgRPCを実装する場合、通常はASP.NET Core上で開発します。ASP.NET Coreで開発していた場合、一般的なロギングライブラリであれば、APIの例外時にはロガーの設定に則ってエラーログは出力されることが多いでしょう。
-
-では何もする必要がないのでしょうか？
-
-そんなことはありません。Web APIの実装側でも別途ログを出力しておくべきです。これはASP.NET Coreレベルでのログ出力では、たとえば認証情報のようなデータはログに出力されない為です。誰が操作したときの例外なのか、障害の分析には最重要情報の1つです。ASP.NET Coreレベルのログも念のため残しておいた方が安全ですが、アプリケーション側ではアプリケーション側で例外を出力しましょう。
-
-MagicOnionを利用してこのような共通処理を組み込みたい場合、認証のときにも利用したMagicOnionFilterAttributeを利用するのが良いでしょう。
-
-このとき認証のときに利用したフィルターに組み込んでも良いのですが、つぎのように認証用のフィルターの後ろにログ出力用のフィルターを配置した方が良いと考えています。
-
-![](Article03/スライド10.PNG)
-
-これは認証とログ出力は別の関心だからです。そう関心の分離ですね。ログ出力を修正したら認証が影響を受けてしまった。またはその逆のようなケースを防ぐためには、別々に実装しておいて組み合わせた方が良いでしょう。
-
-具体的な実装はつぎの通りです。
+サーバーサイドではIAuthenticationContextをDIすることで、インスタンスを使いまわす想定です。単純にプロパティに設定してしまうと、他者の権限で実行されてしまう可能性があります。そのため、サーバー用のIAuthenticationContextはつぎのように実装しています。
 
 ```cs
-public class LoggingFilterAttribute : MagicOnionFilterAttribute
+public class ServerAuthenticationContext : IAuthenticationContext
 {
-    private readonly ILogger<LoggingFilterAttribute> _logger;
+    private readonly AsyncLocal<User> _currentUserAsyncLocal = new();
+
+    public User CurrentUser
+    {
+        get
+        {
+            if (_currentUserAsyncLocal.Value is null)
+                throw new InvalidOperationException("認証処理の完了時に利用してください。");
+
+            return _currentUserAsyncLocal.Value;
+        }
+
+        internal set => _currentUserAsyncLocal.Value = value;
+    }
+}
+```
+
+実体はAsyncLocal&lt;T>に保持します。これによって同一スレッド上ではかならず同じユーザーが取得できます。また設定はフィルターを通して行い、設定できた場合のみgRPCの実際の処理が実行されるます。
+
+あとは必要な箇所でIAuthenticationContextをDIコンテナーから注入して利用します。
+
+```cs
+public class VendorRepositoryService : ServiceBase<IVendorRepositoryService>, IVendorRepositoryService
+{
+    private readonly IVendorRepository _repository;
+
     private readonly IAuthenticationContext _authenticationContext;
 
-    public LoggingFilterAttribute(
-        ILogger<LoggingFilterAttribute> logger, 
-        IAuthenticationContext authenticationContext)
+    public VendorRepositoryService(IVendorRepository repository, IAuthenticationContext authenticationContext)
     {
-        _logger = logger;
+        _repository = repository;
         _authenticationContext = authenticationContext;
     }
 
-    public override ValueTask Invoke(ServiceContext context, Func<ServiceContext, ValueTask> next)
+    public async UnaryResult<Vendor> GetVendorByIdAsync(VendorId vendorId)
     {
-        try
-        {
-            return next(context);
-        }
-        catch (Exception e)
-        {
-            // 例外情報をログ出力した後に再スローする。
-            _logger.LogError(・・・・
-            throw;
-        }
+        // 呼び出し元のユーザー情報を利用する。
+        var user = _authenticationContext.CurrentUser;
+
+        return await _repository.GetVendorByIdAsync(vendorId);
     }
 }
 ```
-
-ILoggerとIAuthenticationContextをDIコンテナーから注入することで、認証情報を活用したログ出力が可能となります。
-
-具体的なログ出力については、つぎの章で詳細を設計しましょう。
