@@ -1,6 +1,6 @@
 ## 認証ドメインの実装ビュー設計
 
-さてでは、先ほどのオブジェクトをパッケージ単位に振り分けてみましょう。
+さてでは、先ほどのオブジェクトをコンポーネント単位に振り分けてみましょう。
 
 ![](Article03/スライド10.PNG)
 
@@ -280,9 +280,13 @@ public partial struct EmployeeId
 
 EmployeeIdはUserオブジェクトと同じようにAdventureWorksコンポーネントに配置されます。そのため、上記のように宣言的にTypeHandlerを実装しようとした場合、AdventureWorksがDapperに依存してしまいます。
 
-DapperのTypeHandler程度ならたいした影響があるとは思えませんので、アーキテクチャ的な決断として、AdventureWorksがDapperに依存するのを受け入れるという手もあります。
+もちろん、アーキテクチャ的な決断として、AdventureWorksがDapperに依存するのを受け入れるという手もあります。
 
-ただ本稿ではそこは妥協しない形として、AdventureWorks.SqlServer側に配置することとしました。
+ただ個人的にはあまり好みではありません。というのは、AdventureWorksがDapperに依存してしまった場合、Dapperのバージョンを上げないといけないとなったときに、ほぼすべてのドメインが影響を受けてしまうからです。Dapperのバージョンを気軽に上げるということが、かなわなくなります。
+
+ではUnitGeneratorは良いのか？というと、受け入れられる範囲だと思っています。UnitGeneratorは、Valueオブジェクトを生成するライブラリという側面ではすでに完成されていて、なんならバージョンはほぼ永久的に固定することができそうです。またUnitGeneratorはValueオブジェクトのコードを自動生成しているだけなので、問題があれば手動での実装に切り替えても支障がありません。
+
+そのため本稿ではそこは妥協せず、TypeHandlerを作成して、AdventureWorks.SqlServer側に配置することとしました。
 
 ![](Article03/スライド15.PNG)
 

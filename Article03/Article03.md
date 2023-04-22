@@ -712,7 +712,7 @@ public async Task<Vendor> GetVendorByIdAsync(VendorId vendorId)
 
 ```
 
-MagicOnionClientからIVendorRepositoryServiceのインスタンスを動的に生成して、サーバーサイドを呼び出します。
+MagicOnionClientからIVendorRepositoryServiceのインスタンスを動的に生成して、サーバーサイドを呼び出します。Endpointは初出ですが、これは後ほど説明します。
 
 IVendorRepositoryServiceを生成するときにAuthenticationFilterを適用します。
 
