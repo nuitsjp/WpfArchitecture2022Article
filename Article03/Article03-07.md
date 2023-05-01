@@ -1,204 +1,185 @@
 # ロギングアーキテクチャ
 
+ここからはロギングアーキテクチャについて設計していきましょう。
 
+まずはロギングの要件を明確にします。
 
-つづいて例外処理アーキテクチャについて設計します。例外処理は、WPFとgRPCでまったく異なります。そのため、それぞれ個別に設計していきましょう。
+## ロギング要件
 
-## WPFの例外処理アーキテクチャ
+今回は仮に、つぎのような要件があるものとします。
 
-WPFの例外処理は、特別な意図がある場合を除いて、標準で提供されている各種の例外ハンドラーで一括して処理することにします。
+1. ログは可能な限り一貫して保管するため、基本的にはサーバーサイドに保管すること
+2. ただしロギングサーバーが停止している場合も考慮し、エラーレベルのログはローカルファイルシステムにもあわせて保管すること
+3. ログは将来的な分析に利用するため、構造化ログを利用すること
+4. ログの出力には、ログ出力を要求した端末・ユーザーの情報を含めること
+5. ログの出力レベルは、モジュールの再配布なく、サーバーサイドから変更可能であること
 
-実際問題、起こりうる例外をすべて正しく把握して、個別に設計・実装することはそもそも現実味がありません。特定の例外のみ発生個所で個別に例外処理をしても、全体としての一貫性が失われることが多いです。また、例外の隠ぺいや必要なログ出力のもれにつながりやすいです。であれば、グローバルな例外ハンドラー系に基本的には任せて一貫した例外処理をまずは提供するべきかと思います。
+WPFアプリケーションの場合、要件5が実現できると、運用時に楽になることがあります。WPFアプリケーションの場合、Webアプリケーションとちがって再配布が容易ではないため、障害などの解析が必要になった際に、ログの出力レベルを再配布なく変更できことは、おおきなメリットとなります。
 
-ただもちろんすべてを否定するわけではありません。
+なお要件4に一部のログ属性について言及していますが、今回はこれ以外の属性については言及しません。とくにユーザー情報に関しては、認証処理と密接にかかわってくるため入れましたが、それ以外は実際のプロジェクトにおいて必要に応じて検討してください。
 
-たとえば、何らかのファイルを操作するときに、別のプロセスによって例外がでることは普通に考えられます。このような場合にシステムエラーとするのではなくて、対象のリソースが処理できなかったことを明確に伝えるために、個別の例外処理をすることは、十分考えられます。
+## ログ出力レベル設計
 
-このように、正常なビジネス処理において起こりうる例外については、そもそもビジネス的にどのように対応するか仕様を明確にして、個別に対応してあげた方が好ましいものも多いでしょう。
+さて詳細な設計に入り前に、ログの出力レベルについて決定しておきましょう。ここからは仮の実装を行いながら設計します。出力レベルの認識がずれていると、あとから直すのは負担が大きいためです。
 
-逆にたとえば、サーバーサイドのAPIを利用しようとした場合、通信状態が悪ければ例外が発生するでしょう。これらは個別に扱わず、必要であれば適当なリトライ処理の上で、特別な処理は行わずにシステムエラーとしてしまった方が良いでしょう。
+|レベル|通常時出力|クライアントサイド|サーバーサイド|
+|--|:-:|--|--|
+|Trace|×|Debugレベル以外のViewModelのメソッド呼び出し時|なし|
+|Debug|×|ViewModelの画面遷移イベント発生時、またはCommand呼び出し時|なし|
+|Information|〇|なし|HTTPのリクエスト、レスポンス時。認証後のAPI呼び出し前。|
+|Warning|〇|アプリケーションの機能に影響を与える可能性のあると判断したとき。個別に相談の上決定し、つど本表を更新する。|同左＋認証エラー時|
+|Error|〇|意図しない例外の発生時|同左|
+|Critical|〇|システムの運用に致命的な問題が発生した場合|同左|
 
-- 業務シナリオとして起こりうるケースの判定に、例外を用いる必要がある場合は個別処理をする。
-- 業務シナリオとは関係なく、システム的な要因による例外は、例外ハンドラーで共通処理をする。
+通常はInformationレベル以上は出力し、Debug以下は、障害の調査時などに必要に応じて一時的に利用します。
 
-おおまかな方針としては、こんな感じが好ましいと考えています。
+上記仕様の場合、サーバーサイドで例外が発生した場合、クライアントサイドでもWeb API呼び出しが例外となります。そのため、同一の例外が2重で出力されますが、取りこぼすよりは良いため上記定義とします。
 
-ここでは共通の例外ハンドラーの扱いについて設計していきましょう。
+個人的にはWarningの扱いが難しいといつも感じます。単純明快なルールを定められたことがありません。良い提案があればぜひ伺いたいです。
 
-### 例外ハンドリングの初期化
+### WPF上のTrace、Debugログ
 
-今回は画面処理フレームワークにKamishibaiをもちいて、WPFアプリケーションはGeneric Host上で動作させます。
+前述のとおり、基本的にViewModelのメソッドの呼び出し箇所でログを仕込みます。ただ、これを抜け漏れ誤りなく実装するのは大変です。
 
-そのため、例外ハンドリングの初期化はつぎのように行います。
+そこで今回はPostSharpというAOPライブラリを利用して、一括でログ出力コードを「編み込み」ます。AOPとはAspect Oriented Programming、アスペクト志向プログラミングのことで、横断的な関心毎を「アスペクト」として、その関心を必要とする場所に「編み込む」方法論のことです。
+
+詳細な説明はここでは割愛しますが、ここではログ出力処理をアスペクトとしてViewModelのメソッドに埋め込みます。
+
+AOPライブラリは各種ありますが、おおきく2種類のタイプに分けられます。
+
+1. プロキシーオブジェクトを作ってメソッド呼び出しをインターセプトするタイプ
+2. コンパイル時にILを操作するなどして、特定のコードを任意の場所に埋め込むタイプ
+
+PostSharpは2のタイプのライブラリです。
+
+- [https://www.postsharp.net/](https://www.postsharp.net/)
+
+10種類までのアスペクトであれば無償版でも利用でき、実績も多いため今回はPostSharpを利用します。
+
+具体的には、つぎのようなOnMethodBoundaryAspectを継承したアスペクトを作成します。
 
 ```cs
-var builder = KamishibaiApplication<TApplication, TWindow>.CreateBuilder();
-
-// 各種DIコンテナーの初期化処理
-
-var app = builder.Build();
-app.Startup += SetupExceptionHandler;
-await app.RunAsync();
-```
-
-ビルドしたappのStartupイベントをフックして、アプリケーションが起動した直後にSetupExceptionHandlerを呼び出して、例外ハンドリングを初期化します。
-
-SetupExceptionHandlerの中では、つぎの3つのハンドラーを利用して例外処理を行います。
-
-1. Application.Current.DispatcherUnhandledException
-2. AppDomain.CurrentDomain.UnhandledException
-3. TaskScheduler.UnobservedTaskException
-
-### Application.Current.DispatcherUnhandledException
-
-具体的な実装はつぎの通りです。
-
-```cs
-Application.Current.DispatcherUnhandledException += (sender, args) =>
+public class LoggingAspect : OnMethodBoundaryAspect
 {
-    Log.Warning(args.Exception, "Dispatcher.UnhandledException sender:{Sender}", sender);
-    // 例外処理の中断
-    args.Handled = true;
+    public static ILogger Logger・・・
 
-    // システム終了確認
-    var confirmResult = MessageBox.Show(
-        "システムエラーが発生しました。作業を継続しますか？",
-        "システムエラー",
-        MessageBoxButton.YesNo,
-        MessageBoxImage.Warning,
-        MessageBoxResult.Yes);
-    if (confirmResult == MessageBoxResult.No)
+    public override void OnEntry(MethodExecutionArgs args)
     {
-        Environment.Exit(1);
-    }
-};
+        var logLevel = GetLogLevel(args);
+        Logger.Log(logLevel, "{Type}.{Method}({Args}) Entry", args.Method.ReflectedType!.FullName, args.Method.Name, args);
 ```
 
-例外情報をログに出力したあと、例外処理を中断します。
-
-その後に、システムの利用を継続するかどうか、ユーザーに確認を取り、継続が選ばれなかった場合はアプリケーションを終了します。
-
-WPFの例外ハンドラーは、基本的には[Application.DispatcherUnhandledException](https://learn.microsoft.com/ja-jp/dotnet/api/system.windows.application.dispatcherunhandledexception?view=windowsdesktop-8.0)で例外を処理します。Application.DispatcherUnhandledExceptionでは例外チェーンを中断できますが、それ以外では中断できないためです。
-
-Environment.Exit(1)を呼び出さなくても、最終的にはアプリケーションは終了します。しかし、Environment.Exit(1)を呼び出さないと、つづいてAppDomain.CurrentDomain.UnhandledExceptionが呼び出されます。例外の2重処理になりやすいため、明示的に終了してしまうのが好ましいでしょう。
-
-### AppDomain.CurrentDomain.UnhandledException
-
-先のApplication.DispatcherUnhandledExceptionでは、つぎのように、明示的に作成したThreadで発生した例外は補足できません。
+そしてViewModelプロジェクトのAssemblyInfo.csなどに、つぎのように記載します。
 
 ```cs
-var thread = new Thread(() =>
-{
-    throw new NotImplementedException();
-});
-thread.Start();
+using AdventureWorks.Wpf.ViewModel;
+
+[assembly: LoggingAspect(AttributeTargetTypes = "*ViewModel")]
 ```
 
-この場合は、[AppDomain.UnhandledException](https://learn.microsoft.com/ja-jp/dotnet/api/system.appdomain.unhandledexception?view=net-7.0)を利用して例外を補足します。
+これでビルド時にViewModelのメソッドの入り口でLoggingAspectクラスのOnEntryが呼び出されるコードが編み込まれます。
 
-AppDomain.CurrentDomain.UnhandledExceptionでは、つぎのようにログ出力の後に、ユーザーにエラーを通知してアプリケーションを終了します。AppDomain.CurrentDomain.UnhandledExceptionでは例外チェーンを中断できず、この後アプリケーションはかならず終了されるため、確認はせずに通知だけします。
+非常に簡単ですし、抜け漏れ誤りなく実装が可能になります。
 
-```cs
-AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
-{
-    Log.Warning(args.ExceptionObject as Exception, "AppDomain.UnhandledException sender:{Sender}", sender);
-    
-    // システム終了通知
-    MessageBox.Show(
-        "システムエラーが発生しました。作業を継続しますか？",
-        "システムエラー",
-        MessageBoxButton.OK,
-        MessageBoxImage.Error,
-        MessageBoxResult.OK);
+## ロギングアーキテクチャ概要
 
-    Environment.Exit(1);
-};
-```
+前述の要件を満たすために、ざっくりつぎのようなアーキテクチャを検討します。
 
-このとき、Environment.Exit(1)を呼び出すことで、Windowsのアプリケーションのクラッシュダイアログの表示を抑制します。
+1. ロギングのインターフェイスには、Microsoft.Extensions.Loggingを利用する
+2. ロギングの実装には、Serilogを利用する（要件3）
+3. ログの出力はSQL Server上に保管する（要件1）
+4. WPFのログ出力は、SerilogのSink（出力先を拡張する仕組み）を利用してgRPCでサーバーへ送信して保管する（要件1）
+5. またあわせてエラーレベルのログは、FileSinkを利用してローカルにも出よくする（要件2）
+6. WPF・Web APIともに、起動時にログ設定ファイルをサーバーより取得して適用する（要件5）
+7. ログ出力時は認証アーキテクチャで検討した仕組みを適用してユーザーを特定してログ出力する（要件4）
 
-### TaskScheduler.UnobservedTaskException
+上記を実現するため、ロギングWeb APIをgRPCで構築します。ざっくりした構成はつぎのとおりです。
 
-つぎのようにTaskをasync/awaitせず、投げっぱなしでバックグラウンド処理した際に例外が発生した場合は、[TaskScheduler.UnobservedTaskException](https://learn.microsoft.com/ja-jp/dotnet/api/system.threading.tasks.taskscheduler.unobservedtaskexception?view=net-7.0)で補足します。
+![](Article03/スライド26.PNG)
 
-```cs
-private void OnClick(object sender, RoutedEventArgs e)
-{
-    Task.Run(() =>
-    {
-        throw new NotImplementedException();
-    });
-}
-```
+ロギングAPIも認証は掛けたいため、認証APIを利用します。その上で、つぎのような相互作用をとります。
 
-ただTaskScheduler.UnobservedTaskExceptionは例外が発生しても即座にコールされないため注意が必要です。
+![](Article03/スライド27.PNG)
 
-ユーザーの操作とは無関係に、「いつか」発行されるため、ユーザーに通知したり、アプリケーションを中断しても混乱を招くだけです。
+まず認証APIを呼び出して認証します。このときビジネスドメインのWeb APIとは別のaudienceを利用します。そのためWPFの起動時にビジネスドメインとロギングで最低2回の認証を呼び出します。
 
-未処理の例外は全般的に、あくまで最終手段とするべきものですが、とくにTaskScheduler.UnobservedTaskExceptionは最後の最後の保険と考えて、つぎのようにログ出力程度に留めておくのが良いでしょう。
+認証に成功したらロギング設定をロギングAPIから取得します。取得時にはビジネスドメインのWeb API同様にJWTで認証します。
 
-```cs
-TaskScheduler.UnobservedTaskException += (sender, args) =>
-{
-    Log.Warning(args.Exception, "TaskScheduler.UnobservedTaskException sender:{Sender}", sender);
-    args.SetObserved();
-};
-```
+あとは取得した設定情報に基づいてログを出力します。
 
-SetObservedは .NET Framework 4以前はアプリケーションが終了してしまうことがありましたが、現在は呼ばなくても挙動は変わらないはずです。一応念のため呼び出しています。
+ビジネスドメインのWeb APIノードは、その機能の提供時に直接データベースサーバーを利用します。そのためログ出力も直接データベースへ出力します。
 
-## gRPCの例外処理アーキテクチャ
+ロギング時にログAPIを利用してもよいのですが、今回はノードを分散した耐障害性まで求めないものとして、直接データベースに出力することとします。
 
-Web APIで何らかの処理を実行中に例外が発生した場合、通常はリソースを解放してログを出力するくらいしかできません。ほかにできる事といえば、外部リソース（たとえばデータベース）を利用中に例外が発生したのであればリトライくらいでしょうか？
+## ロギングのドメインビュー
 
-特殊な事をしていなければリソースの解放はC#のusingで担保するでしょうし、解放漏れがあったとしても例外時にフォローすることも難しいです。そのため実質的にはログ出力くらいです。
+さて、そろそろ慣れてきてもう気が付いていると思いますが、ロギングも汎用のライブラリ的に扱いますから、新しい汎用ドメインになります。
 
-MagicOnionを利用してgRPCを実装する場合、通常はASP.NET Core上で開発します。ASP.NET Coreで開発していた場合、一般的なロギングライブラリであれば、APIの例外時にはロガーの設定に則ってエラーログは出力されることが多いでしょう。
+下図がロギングドメインからみた境界付けられたコンテキストです。
 
-では何もする必要がないのでしょうか？
+![](Article03/スライド28.PNG)
 
-そんなことはありません。Web APIの実装側でも別途ログを出力しておくべきです。これはASP.NET Coreレベルでのログ出力では、接続元のアドレスは表示できても、たとえば認証情報のようなデータはログに出力されない為です。誰が操作したときの例外なのか、障害の分析には最重要情報の1つです。ASP.NET Coreレベルのログも念のため残しておいた方が安全ですが、アプリケーション側ではアプリケーション側で例外を出力しましょう。
+そして下図がコンテキストマップです。
 
-MagicOnionを利用してこのような共通処理を組み込みたい場合、認証のときにも利用したMagicOnionFilterAttributeを利用するのが良いでしょう。
+![](Article03/スライド29.PNG)
 
-このとき認証のときに利用したフィルターに組み込んでも良いのですが、つぎのように認証用のフィルターの後ろにログ出力用のフィルターを配置した方が良いと考えています。
+ロギングコンテキストは、購買・製造・販売のコンテキストからカスタマー・サプライヤー関係で利用されます。
 
-![](Article03/スライド23.PNG)
+その際に、認証されたユーザーにのみ利用を許可するため、認証コンテキストとAdventureWorks.Businessコンテキストを利用します。
 
-これは認証とログ出力は別の関心だからです。そう関心の分離ですね。ログ出力を修正したら認証が影響を受けてしまった。またはその逆のようなケースを防ぐためには、別々に実装しておいて組み合わせた方が良いでしょう。
+ロギングコンテキストは、WPFクライアントに対してgRPCでロギングAPIを提供するためMagicOnionコンテキストを利用します。
 
-具体的な実装はつぎの通りです。
+そしてログの出力はSqlServerに行うため、データベースコンテキストも利用します。
 
-```cs
-public class LoggingFilterAttribute : MagicOnionFilterAttribute
-{
-    private readonly ILogger<LoggingFilterAttribute> _logger;
-    private readonly IAuthenticationContext _authenticationContext;
+## ロギングの論理ビュー
 
-    public LoggingFilterAttribute(
-        ILogger<LoggingFilterAttribute> logger, 
-        IAuthenticationContext authenticationContext)
-    {
-        _logger = logger;
-        _authenticationContext = authenticationContext;
-    }
+ではロギングの論理ビューを設計しましょう。
 
-    public override ValueTask Invoke(ServiceContext context, Func<ServiceContext, ValueTask> next)
-    {
-        try
-        {
-            return next(context);
-        }
-        catch (Exception e)
-        {
-            // 例外情報をログ出力した後に再スローする。
-            _logger.LogError(・・・・
-            throw;
-        }
-    }
-}
-```
+![](Article03/スライド30.PNG)
 
-ILoggerとIAuthenticationContextをDIコンテナーから注入することで、認証情報を活用したログ出力が可能となります。
+だいたいこんな感じでしょうか？
 
-具体的なログ出力については、つぎの章で詳細を設計しましょう。
+今回中央からAdventureWorks.Businessドメインを省略しています。実際には認証処理のためにUserオブジェクトを参照するのですが、本質的には影響が小さい事と、ロギングドメインの外側にSerilogに直接依存している層を書きたかったので、省略しました。
+
+最外周にMagicOnionが2カ所でてきます。これは別のサービスというわけではなく、片側にそろえると込み合ってしまうので、見やすくするために分けてあるだけです。
+
+上側がログ出力側、下側が初期化処理側のオブジェクトが集まっています。
+
+### 初期化処理
+
+まずは初期化処理についてみてみましょう。
+
+![](Article03/スライド31.PNG)
+
+認証と同様に、アプリケーション起動時に初期画面のViewModelから初期化を行います。
+
+ILoggingInitializerインターフェイスを呼び出すことで初期化を行います。実際にはLoggingInitializerクラスを注入して、クラスを呼び出します。
+
+LoggingInitializerは、ISerilogConfigRepositoryインターフェイスを利用して設定をサーバーから取得して、Serilogを初期化します。
+
+ISerilogConfigRepositoryインターフェイスの実体はSerilogConfigRepositoryClientクラスで、IMagicOnionFactoryを利用して、ISerilogConfigServiceインターフェイスの実体を取得して呼び出すことで、gRPCでサーバーサイドを呼び出します。
+
+サーバーサイドではSerilogConfigServiceクラスが呼び出され、ISerilogRepositoryを使って、データベースから設定値を取得します。
+
+ISerilogRepositoryインターフェイスの実体はSerilogRepositoryクラスで、このクラスからデータベースを呼び出して実際の設定値を取得します。
+
+実装ビューの設計時に、実際にコードを追いつつ詳細に見たいと思います。
+
+### ログ出力処理
+
+ログ出力処理の流れはつぎの通りです。
+
+![](Article03/スライド32.PNG)
+
+ユーザーがViewで何らかの操作をすると、ViewModelが呼び出されます。
+
+ViewModelのメソッドの入り口で、PoshSharpによって織り込まれたLoggingAspectが呼び出されて、ログを出力します。
+
+ログ出力を指示されたSerilogは（ここは図には記載していません）、MagicOnionSinkを利用してMagicOnion経由でログを出力します。
+
+MagicOnionSinkはIMagicOnionFactoryからILoggingServiceのインスタンスを取得して、サーバーサイドにログを渡します。
+
+サーバーサイドではLoggingServiceがログを受け取り、ILogRepositoryでログを書き込みます。
+
+ILogRepositoryインターフェイスの実体はLogRepositoryクラスで、ここで実際にデータベースにログが出力されます。
+

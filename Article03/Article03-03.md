@@ -46,11 +46,11 @@ gRPCでJWTを利用するために、クライアント側でトークンをHTTP
 
 ```cs
 private readonly IAuthenticationService _authenticationService;
-private readonly Menu.ViewModel.IPresentationService _presentationService;
+private readonly IPresentationService _presentationService;
 
 public MainViewModel(
     [Inject] IAuthenticationService authenticationService,
-    [Inject] Menu.ViewModel.IPresentationService presentationService)
+    [Inject] IPresentationService presentationService)
 {
     _authenticationService = authenticationService;
     _presentationService = presentationService;
