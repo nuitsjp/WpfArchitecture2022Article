@@ -202,7 +202,7 @@ CQRSは、「コマンドクエリ責務分離」の略で、データベース�
 
 WPF側では、検索サービスにクエリーオブジェクトを利用していた結果、C#のプログラム改修を一切なしに、検索性能を改善することができました。登録側もデータベーストリガーを利用しました。
 
-とうわけで要検索製品一覧画面のレコードは、エンティティではなく、RePurchasingコンポーネント内に、RequiringPurchaseProductsQueryクラスを作成します。
+とうわけで要検索製品一覧画面のレコードは、エンティティではなく、RePurchasingコンポーネント内に、RequiringPurchaseProductクラスを作成します。
 
 ```cs
 public record RequiringPurchaseProduct
@@ -281,6 +281,8 @@ public partial class RequiringPurchaseProductsViewModel :
 ```
 
 遷移Commandは、メニューからの遷移と同様にRelayCommandを利用して生成します。やはり便利です。とくに非同期メソッドも何も考えずに利用できるのは、非常に便利です。
+
+またKamishibaiを利用することで、画面遷移時の引数を、つぎの画面のコンストラクターに型安全に渡すことができます。
 
 さて、Vendor関連を実装ビューに反映しましょう。
 
