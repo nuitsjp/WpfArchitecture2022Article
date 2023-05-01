@@ -2906,7 +2906,7 @@ Friendlyを知らない方でも、何をやっているかだいたい理解で
 var mainWindow = _app.AttachMainWindow();
 ```
 
-さて、購買管理WPFアプリケーションのエントリーポイントはAdventureWorks.Business.Purchasing.Hosting.Wpfです。テストのときにこれを呼び出すと、バックエンドにつながってしまいます。
+購買管理WPFアプリケーションのエントリーポイントはAdventureWorks.Business.Purchasing.Hosting.Wpfです。テストのときにこれを呼び出すと、バックエンドにつながってしまいます。
 
 そのためテスト用のスタブに切り替えてあげる必要があります。しかもテストケースごとにスタブが入れ替えられると便利でしょう。
 
@@ -2926,7 +2926,7 @@ public static WindowsAppFriend Start()
 }
 ```
 
-ここで起動されるプロセス環境変数にテスト名を設定して起動します。
+ここで起動されるプロセス環境変数に、NUnitのテスト名を設定して起動します。Friendlyの標準のテストフレームワークはNUnitです。個人的にはxUnitを使うことがおおいのですが、FluentAssertionsというOSSライブラリを使うと、テスト本体の書き方はフレームワーク非依存で、かつ「流ちょうに」記述できるためオススメです。
 
 ```cs
 var info = new ProcessStartInfo(targetPath) { WorkingDirectory = Path.GetDirectoryName(targetPath)! };
