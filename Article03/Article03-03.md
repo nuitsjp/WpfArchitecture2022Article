@@ -80,8 +80,8 @@ public class MainViewModel : INavigatedAsyncAware
         else
         {
             _presentationService.ShowMessage(
-                "ユーザー認証に失敗しました。",
-                "認証エラー",
+                Purchasing.ViewModel.Properties.Resources.AuthenticationFailed,
+                Purchasing.ViewModel.Properties.Resources.AuthenticationFailedCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             // アプリケーションを終了する。

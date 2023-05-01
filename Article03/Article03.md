@@ -262,8 +262,8 @@ UserSerializerがレイアウトの都合上、右上の左下の2カ所に配�
 |コントローラー・ゲートウェイ|UserSerializer|UserとJWTのシリアライズ・デシリアライズを行う|
 ||AuthenticationServiceClient|REST APIを呼び出して認証処理を行う|
 ||AuthenticationController|REST APIを提供し、Windows認証からユーザーを特定して利用者を認証する|
-||IClientAuthenticationContext|IAuthenticationContextを継承した、gRPC用の認証コンテキスト。IAuthenticationContextと異なり、JWTトークンを保持して、gRPCを呼び出す際にサーバーサイドにトークンを渡す。|
-||AuthenticationFilter|gRPCのクライアントを呼び出すと、必ず通過するフィルター。IClientAuthenticationContextからトークンを取得してヘッダーに付与することで認証情報をサーバーサイドに渡す。|
+||ClientAuthenticationContext|IAuthenticationContextを実装した、gRPC用の認証コンテキスト。IAuthenticationContextと異なり、JWTトークンを保持して、gRPCを呼び出す際にサーバーサイドにトークンを渡す。|
+||AuthenticationFilter|gRPCのクライアントを呼び出すと、必ず通過するフィルター。ClientAuthenticationContextからトークンを取得してヘッダーに付与することで認証情報をサーバーサイドに渡す。|
 ||ServerAuthenticationContext|IAuthenticationContextのgRPCサーバーサイド実装。クライアント側は1プロセス1ユーザーだが、サーバーサイドは1プロセスマルチユーザーのため、異なる実装が必要となる。|
 ||AuthenticationFilterAttribute|gRPCのサーバーサイドが呼び出された場合に必ず通過するフィルター。リクエストヘッダーからトークンを取得し、UserSerializerで複合することでユーザーの検証を行う。|
 
@@ -399,8 +399,8 @@ public class MainViewModel : INavigatedAsyncAware
         else
         {
             _presentationService.ShowMessage(
-                "ユーザー認証に失敗しました。",
-                "認証エラー",
+                Purchasing.ViewModel.Properties.Resources.AuthenticationFailed,
+                Purchasing.ViewModel.Properties.Resources.AuthenticationFailedCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             // アプリケーションを終了する。
@@ -1513,8 +1513,8 @@ public class MainViewModel : INavigatedAsyncAware
         else
         {
             _presentationService.ShowMessage(
-                "ユーザー認証に失敗しました。",
-                "認証エラー",
+                Purchasing.ViewModel.Properties.Resources.AuthenticationFailed,
+                Purchasing.ViewModel.Properties.Resources.AuthenticationFailedCaption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
 
