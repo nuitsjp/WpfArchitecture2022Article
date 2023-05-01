@@ -2386,7 +2386,7 @@ public partial class MenuViewModel
 }
 ```
 
-メニュー画面で再発注ボタンを押下したとき、ViewModelのCommandを呼び出します。Commandの実装は多用な方法がありますが、今回はCommunityToolkit.Mvvmというライブラリを利用します。
+メニュー画面で再発注ボタンを押下したとき、ViewModelのCommandを呼び出します。Commandの実装は多様な方法がありますが、今回はCommunityToolkit.Mvvmというライブラリを利用します。
 
 CommunityToolkit.Mvvmでは上述のようにRelayCommand属性を付与することで、自動的にCommandを生成してくれます。非常に便利なのでぜひ利用してみてください。
 
