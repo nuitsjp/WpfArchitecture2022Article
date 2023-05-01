@@ -10,6 +10,25 @@
 
 では、設計を始めましょう！
 
+# ソースコード
+
+実際に動作するソースコードは、GitHub上に公開しています。ぜひご覧ください。
+
+- [https://github.com/nuitsjp/WpfArchitecture2022](https://github.com/nuitsjp/WpfArchitecture2022)
+
+ビルドや実行方法については、リンク先のREADME.mdをご覧ください。
+
+また実際に動作させるためにはつぎの2つのライセンスが必要です。
+
+* [ComponentOne for WPF Edition 2022v2](https://www.grapecity.co.jp/developer/componentone/wpf)
+* [SPREAD for WPF 4.0J](https://www.grapecity.co.jp/developer/spread-wpf)
+
+これらは試用ライセンスを発行していただくことができます。
+
+T.B.D.　正式な試用ライセンスの申告方法をここに記載する
+
+本稿は、本稿だけで読み進められるように記載していますが、すべてのコードを詳細に解説しているわけではありません。本稿を読んだ後、あらためて動作させつつコードと本稿を読み比べていただければ、理解が深まるかと思います。
+
 # 前提条件
 
 本稿はWPFアプリケーションのアーキテクチャ設計について記載したものです。すでに公開されている「見積編」および「設計編　前編」が前提となります。未読なものがあれば、そちらからまずはお読みください。
