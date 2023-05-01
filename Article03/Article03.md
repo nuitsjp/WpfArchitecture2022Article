@@ -632,7 +632,7 @@ EmployeeIdTypeHandlerの実装ですが、UnitGeneratorで宣言的に解決し�
 
 T4の詳細は割愛します。少し古い仕組みですが、C#でもっとも簡単に利用できるコード生成手段です。生成されたコードがバージョン管理できるところが、個人的には結構好きです。
 
-includeディレクティブで指定している[DapperTypeHandlers.t4は直接GitHubで](https://github.com/nuitsjp/WpfArchitecture2022/blob/main/Source/AdventureWorks.Database/DapperTypeHandlers.t4)コードをみてみてください。
+コード生成の実態は、includeディレクティブで指定している[DapperTypeHandlers.t4側にあります。これを共有することでTypeHandlerの品質と生産性を確保します。実体は直接GitHubで](https://github.com/nuitsjp/WpfArchitecture2022/blob/main/Source/AdventureWorks.Database/DapperTypeHandlers.t4)コードをみてみてください。
 
 さて、忘れないうちに購買ドメインの配置ビューも更新しておきましょう。
 
