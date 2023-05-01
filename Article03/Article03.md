@@ -1155,8 +1155,8 @@ Application.Current.DispatcherUnhandledException += (sender, args) =>
 
     // システム終了確認
     var confirmResult = MessageBox.Show(
-        "システムエラーが発生しました。作業を継続しますか？",
-        "システムエラー",
+        AdventureWorks.Wpf.ViewModel.Properties.Resources.SystemErrorOccurredConfirm,
+        AdventureWorks.Wpf.ViewModel.Properties.Resources.SystemErrorOccurredCaption,
         MessageBoxButton.YesNo,
         MessageBoxImage.Warning,
         MessageBoxResult.Yes);
@@ -1198,8 +1198,8 @@ AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
     
     // システム終了通知
     MessageBox.Show(
-        "システムエラーが発生しました。作業を継続しますか？",
-        "システムエラー",
+        AdventureWorks.Wpf.ViewModel.Properties.Resources.SystemErrorOccurredAlert,
+        AdventureWorks.Wpf.ViewModel.Properties.Resources.SystemErrorOccurredCaption,
         MessageBoxButton.OK,
         MessageBoxImage.Error,
         MessageBoxResult.OK);
